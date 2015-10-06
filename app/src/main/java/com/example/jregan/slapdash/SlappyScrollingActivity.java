@@ -1,14 +1,5 @@
 package com.example.jregan.slapdash;
 
-import android.os.Bundle;
-import android.support.design.widget.FloatingActionButton;
-import android.support.design.widget.Snackbar;
-import android.support.v7.app.AppCompatActivity;
-import android.support.v7.widget.Toolbar;
-import android.view.View;
-import android.view.Menu;
-import android.view.MenuItem;
-
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -40,9 +31,7 @@ public class SlappyScrollingActivity extends AppCompatActivity
     private Button btnStart, btnStop, btnBind, btnUnbind, btnUpby1, btnUpby10;
     private TextView textStatus, textIntValue, textStrValue;
     private Messenger mServiceMessenger = null;
-    private ServiceConnection mConnection = this;
 
-    // SILLY
     private void prepButtons() {
         btnStart = (Button) findViewById(R.id.btnStart);
         btnStop = (Button) findViewById(R.id.btnStop);
@@ -65,16 +54,13 @@ public class SlappyScrollingActivity extends AppCompatActivity
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        Log.i(LOGTAG, "in onCreate, mIsBound = " + mIsBound);
         setContentView(R.layout.activity_slappy_scrolling);
         if (DO_SILLY_THING) {
             prepButtons();
-            if (BubbleService.isRunning()) {
-                doBindService();
-            }
         } else {
             Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
             setSupportActionBar(toolbar);
-
             FloatingActionButton fab = (FloatingActionButton) findViewById(R.id.fab);
             fab.setOnClickListener(new View.OnClickListener() {
                 @Override
@@ -86,65 +72,92 @@ public class SlappyScrollingActivity extends AppCompatActivity
         }
     }
 
+    /**
+     * This happens if the activity is destroyed.
+     * <p/>
+     * E.g. on phone rotation, this is called, and shortly thereafter onCreate is called.
+     * If the service was running when onDestroy was called, the service will keep running,
+     * and onCreate will notice that it's running and bind to it, even if the service
+     * wasn't bound before destroy.  It's possible to store an isBound bit away to avoid
+     * such automatic binding.
+     */
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        Log.i(LOGTAG, "got DESTROY");
+        try {
+            doUnbindService();
+        } catch (Throwable t) {
+            Log.e(LOGTAG, "Failed to unbind from the service", t);
+        }
+    }
 
-    // SILLY
+
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
+        Log.i(LOGTAG, "in onSaveInstanceState");
+        outState.putBoolean("isBound", mIsBound);
         outState.putString("textStatus", textStatus.getText().toString());
         outState.putString("textIntValue", textIntValue.getText().toString());
         outState.putString("textStrValue", textStrValue.getText().toString());
     }
 
-
-    // SILLY
     @Override
     protected void onRestoreInstanceState(Bundle savedInstanceState) {
+        Log.i(LOGTAG, "in onRestoreInstanceState");
+        boolean wasBound = false;
         if (savedInstanceState != null) {
+            Log.i(LOGTAG, "pulling in data");
+            wasBound = savedInstanceState.getBoolean("isBound", false);
             textStatus.setText(savedInstanceState.getString("textStatus"));
             textIntValue.setText(savedInstanceState.getString("textIntValue"));
             textStrValue.setText(savedInstanceState.getString("textStrValue"));
         }
+        if (wasBound) {
+            if (BubbleService.isRunning()) {
+                doBindService();
+            }
+        }
         super.onRestoreInstanceState(savedInstanceState);
     }
 
+    /**
+     * Binds this Activity (which implements ServiceConnection), to the given service.
+     * If this succeeds, onServiceConnected will execute, creating a Messenger to
+     * use for talking to the service.
+     */
+    private void doBindService() {
+        Log.i(LOGTAG, "Doing the service binding in thread " + Thread.currentThread().getId());
+        bindService(new Intent(this, BubbleService.class), this, Context.BIND_AUTO_CREATE);
+        mIsBound = true;
+        textStatus.setText("Binding.");
+        Log.i(LOGTAG, "Binding completed.");
+    }
 
     /**
-     * SILLY Send data to the service
-     *
-     * @param intvaluetosend The data to send
+     * This method will execute in the same thread shortly after (and as a consequence of)
+     * doBindService.  The registration allows messages to be sent back, to be handled in
+     * this activity by ClientMessageHandler.
      */
-    private void sendMessageToService(int intvaluetosend) {
-        Log.i(LOGTAG, "Trying to send message to service.");
-        if (!mIsBound) {
-            Log.e(LOGTAG, "Cannot send message since not mIsBound.");
-            return;
-        }
-        if (mServiceMessenger == null) {
-            Log.e(LOGTAG, "Cannot send message since mServiceMessenger is null.");
-            return;
-        }
+    @Override
+    public void onServiceConnected(ComponentName name, IBinder service) {
+        mServiceMessenger = new Messenger(service);
+        textStatus.setText("Attached.");
+        Log.i(LOGTAG, "got onServiceConnected in thread " + Thread.currentThread().getId());
         try {
-            Message msg = Message.obtain(null, BubbleService.MSG_SET_INT_VALUE, intvaluetosend, 0);
+            // Register this activity with the service, allowing the service to
+            // send messages back
+            Message msg = Message.obtain(null, BubbleService.MSG_REGISTER_CLIENT);
             msg.replyTo = mMessenger;
             mServiceMessenger.send(msg);
         } catch (RemoteException e) {
-            Log.e(LOGTAG, "Trouble sending integer to service!!!!!!!!!!!!!!!!");
+            Log.e(LOGTAG, "Service trouble; unable to register with it.");
         }
     }
 
     /**
-     * SILLY Bind this Activity to BubbleService
-     */
-    private void doBindService() {
-        Log.i(LOGTAG, "Doing the service binding");
-        bindService(new Intent(this, BubbleService.class), mConnection, Context.BIND_AUTO_CREATE);
-        mIsBound = true;
-        textStatus.setText("Binding.");
-    }
-
-    /**
-     * SILLY Un-bind this Activity to BubbleService
+     * Undoes the work of doBindService.
      */
     private void doUnbindService() {
         Log.i(LOGTAG, "Doing the service UN-binding");
@@ -155,23 +168,33 @@ public class SlappyScrollingActivity extends AppCompatActivity
         if (mServiceMessenger == null) {
             Log.i(LOGTAG, "Don't have a server messenger, no need to unregister myself");
         } else {
-            // Tell the service we're going away.
+            // Tell the service not to send any more messages.
             try {
                 Message msg = Message.obtain(null, BubbleService.MSG_UNREGISTER_CLIENT);
                 msg.replyTo = mMessenger;
                 mServiceMessenger.send(msg);
             } catch (RemoteException e) {
-                // There is nothing special we need to do if the service has crashed.
+                // Maybe the service crashed?
             }
         }
-        // Detach our existing connection.
-        unbindService(mConnection);
+        unbindService(this);
         mIsBound = false;
         textStatus.setText("Unbinding.");
     }
 
     /**
-     * SILLY Handle button clicks
+     * Called when the connection with the service has been unexpectedly disconnected.
+     * Not called as a consequence of unBindService.
+     */
+    @Override
+    public void onServiceDisconnected(ComponentName name) {
+        Log.i(LOGTAG, "got onServiceDisConnected");
+        mServiceMessenger = null;
+        textStatus.setText("Disconnected.");
+    }
+
+    /**
+     * Handle button clicks.
      */
     @Override
     public void onClick(View v) {
@@ -198,80 +221,31 @@ public class SlappyScrollingActivity extends AppCompatActivity
     }
 
     /**
-     * SILLY This is called once when the service gets started.and knows about us. Could
+     * Send message to the service, obviously.
+     *
+     * @param valueToSend The data to send
      */
-    @Override
-    public void onServiceConnected(ComponentName name, IBinder service) {
-        mServiceMessenger = new Messenger(service);
-        textStatus.setText("Attached.");
-        lotsOfLogSpacing();
-        Log.i(LOGTAG, "got onServiceConnected");
+    private void sendMessageToService(int valueToSend) {
+        Log.i(LOGTAG, "Trying to send message to service.");
+        if (!mIsBound) {
+            Log.e(LOGTAG, "Cannot send message since not mIsBound.");
+            return;
+        }
+        if (mServiceMessenger == null) {
+            Log.e(LOGTAG, "Cannot send message since mServiceMessenger is null.");
+            return;
+        }
         try {
-            Message msg = Message.obtain(null, BubbleService.MSG_REGISTER_CLIENT);
+            Message msg = Message.obtain(null, BubbleService.MSG_SET_INT_VALUE, valueToSend, 0);
             msg.replyTo = mMessenger;
             mServiceMessenger.send(msg);
         } catch (RemoteException e) {
-            Log.e(LOGTAG, "Service trouble; unable to register with it.");
-        }
-    }
-
-    private void lotsOfLogSpacing() {
-        for (int i = 1; i < 20; i++) {
-            Log.i(LOGTAG, "*");
+            Log.e(LOGTAG, "Trouble sending data to service");
         }
     }
 
     /**
-     * SILLY Called when the connection with the service has been unexpectedly disconnected -
-     * process crashed.
-     */
-    @Override
-    public void onServiceDisconnected(ComponentName name) {
-        lotsOfLogSpacing();
-        Log.i(LOGTAG, "got onServiceDisConnected");
-        mServiceMessenger = null;
-        textStatus.setText("Disconnected.");
-    }
-
-    /**
-     * SILLY
-     */
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        Log.i(LOGTAG, "got DESTROY");
-        try {
-            doUnbindService();
-        } catch (Throwable t) {
-            Log.e(LOGTAG, "Failed to unbind from the service", t);
-        }
-    }
-
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        Log.i(LOGTAG, "got onCreateOptionsMenu");
-        // Inflate the menu; this adds items to the action bar if it is present.
-        getMenuInflater().inflate(R.menu.menu_slappy_scrolling, menu);
-        return true;
-    }
-
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        Log.i(LOGTAG, "got onOptionsItemSelected");
-        // Handle action bar item clicks here. The action bar will
-        // automatically handle clicks on the Home/Up button, so long
-        // as you specify a parent activity in AndroidManifest.xml.
-        int id = item.getItemId();
-
-        //noinspection SimplifiableIfStatement
-        if (id == R.id.action_settings) {
-            return true;
-        }
-        return super.onOptionsItemSelected(item);
-    }
-
-    /**
-     * SILLY Handle incoming messages from MyService
+     * Handle incoming messages from MyService
      */
     private class ClientMessageHandler extends Handler {
         @Override
@@ -291,5 +265,30 @@ public class SlappyScrollingActivity extends AppCompatActivity
                     super.handleMessage(msg);
             }
         }
+    }
+
+    // Original method from ScrollingAction.
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        Log.i(LOGTAG, "got onCreateOptionsMenu");
+        // Inflate the menu; this adds items to the action bar if it is present.
+        getMenuInflater().inflate(R.menu.menu_slappy_scrolling, menu);
+        return true;
+    }
+
+    // Original method from ScrollingAction.
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        Log.i(LOGTAG, "got onOptionsItemSelected");
+        // Handle action bar item clicks here. The action bar will
+        // automatically handle clicks on the Home/Up button, so long
+        // as you specify a parent activity in AndroidManifest.xml.
+        int id = item.getItemId();
+
+        //noinspection SimplifiableIfStatement
+        if (id == R.id.action_settings) {
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
     }
 }

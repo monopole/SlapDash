@@ -1,8 +1,5 @@
 package com.example.jregan.slapdash;
 
-import android.app.Service;
-import android.content.Intent;
-import android.os.IBinder;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -21,6 +18,9 @@ import java.util.Iterator;
 import java.util.Timer;
 import java.util.TimerTask;
 
+/**
+ *
+ */
 public class BubbleService extends Service {
     static final int MSG_REGISTER_CLIENT = 1;
     static final int MSG_UNREGISTER_CLIENT = 2;
@@ -68,7 +68,6 @@ public class BubbleService extends Service {
 
         nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         CharSequence text = getText(R.string.service_started);
-        // Set the icon, scrolling text and timestamp
         Notification notification = new Notification.Builder(this)
                 .setContentIntent(contentIntent)
                 .setAutoCancel(true)
@@ -76,8 +75,8 @@ public class BubbleService extends Service {
                 .setTicker(getText(R.string.n_ticker))
                 .setContentTitle("hi i am the notification title")
                 .setContentText(text)
-                        //              .setSmallIcon(R.drawable.new_mail)
-                        //              .setLargeIcon(aBitmap)
+                .setSmallIcon(R.drawable.ic_stat_action_trending_up)
+                        // .setLargeIcon(maybe get one of these)
                 .build();
         // Send the notification.
         // We use a layout id because it is a unique number.  We use it later to cancel.
@@ -128,6 +127,7 @@ public class BubbleService extends Service {
         public void run() {
             Log.i(LOGTAG, "Timer doing work; counter = " + counter);
             try {
+                Thread.sleep(2000);
                 counter += incrementBy;
                 sendMessageToUI(counter);
             } catch (Throwable t) {
@@ -140,7 +140,6 @@ public class BubbleService extends Service {
     class IncomingMessHandler extends Handler {
         @Override
         public void handleMessage(Message msg) {
-
             Log.d(LOGTAG, "handleMessage: " + msg.what);
             switch (msg.what) {
                 case MSG_REGISTER_CLIENT:
