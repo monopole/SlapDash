@@ -192,8 +192,8 @@ public class SlappyScrollingActivity extends AppCompatActivity
             Log.i(LOGTAG, "Calling send message with 1 in it.");
             sendMessageToService(1);
         } else if (v.equals(btnUpby10)) {
-            Log.i(LOGTAG, "Calling send message with 100 in it.");
-            sendMessageToService(100);
+            Log.i(LOGTAG, "Calling send message with 1000 in it.");
+            sendMessageToService(1000);
         }
     }
 
