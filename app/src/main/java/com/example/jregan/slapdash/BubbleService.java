@@ -14,40 +14,74 @@ import android.os.RemoteException;
 import android.util.Log;
 
 import java.util.ArrayList;
-import java.util.Iterator;
+import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
 
 /**
- *
+ * A singleton service.
  */
 public class BubbleService extends Service {
-    static final int MSG_REGISTER_CLIENT = 1;
-    static final int MSG_UNREGISTER_CLIENT = 2;
-    static final int MSG_SET_INT_VALUE = 3;
-    static final int MSG_SET_STRING_VALUE = 4;
+
     private static final String LOGTAG = "MyBubbleService";
-    private static boolean isRunning = false;
-    // Target we publish for clients to send messages to IncomingHandler.
-    final Messenger mMessenger = new Messenger(new IncomingMessHandler());
-    // Keeps track of all current registered clients.
-    ArrayList<Messenger> mClients = new ArrayList<Messenger>();
+
+    /**
+     * Message types.  Switch on the 'what' field for one these
+     * values, and interpret the rest accordingly.
+     */
+    static class Msg {
+        static class Observer {
+            static final int REGISTER = 1;
+            static final int UNREGISTER = 2;
+        }
+        static class Set {
+            static final int INT_VALUE = 3;
+            static final int STR_VALUE = 4;
+        }
+    }
+
+    // Accepts incoming message from whatever binds to this service.
+    private final Messenger msgReceiver = new Messenger(new IncomingMessHandler());
+
+    // Observers (activities or other services) to notify when something interesting happens.
+    List<Messenger> msgSenders = new ArrayList<>();
+
+    // Means to tell the human using the device that something interesting happened.
     private NotificationManager nm;
-    private Timer timer = new Timer();
+
     private int counter = 0;
     private int incrementBy = 1;
 
-    public static boolean isRunning() {
-        return isRunning;
+    // Used to launch tasks in a non-UX thread.
+    private class PeriodicTasker {
+        private static final long DELAY_BEFORE_FIRST_TASK = 0L;
+        private static final long WAIT_BETWEEN_TASKS = 1 * 1000L;
+        private Timer timer = null;
+
+        void start() {
+            timer = new Timer();
+            timer.scheduleAtFixedRate(
+                    new MyTask(),
+                    DELAY_BEFORE_FIRST_TASK,
+                    WAIT_BETWEEN_TASKS);
+        }
+
+        void stop() {
+            if (timer != null) {
+                // Currently running task will continue to completion.
+                timer.cancel();
+            }
+        }
     }
+
+    private final PeriodicTasker tasker = new PeriodicTasker();
 
     @Override
     public void onCreate() {
         super.onCreate();
         Log.i(LOGTAG, "Service Started.");
         showNotification();
-        timer.scheduleAtFixedRate(new MyTask(), 0, 100L);
-        isRunning = true;
+        tasker.start();
     }
 
     @Override
@@ -58,13 +92,14 @@ public class BubbleService extends Service {
     }
 
     /**
-     * Show notification that can launch out activity if the user selects the notification.
+     * Show notification that can launch activity if user selects it.
      */
     private void showNotification() {
         int unknownPiReqCode = 0;
-        Intent notifIntent = new Intent(this, SlappyScrollingActivity.class);
         PendingIntent contentIntent = PendingIntent.getActivity(
-                this, unknownPiReqCode, notifIntent, PendingIntent.FLAG_CANCEL_CURRENT);
+                this, unknownPiReqCode,
+                new Intent(this, SlappyScrollingActivity.class),
+                PendingIntent.FLAG_CANCEL_CURRENT);
 
         nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         CharSequence text = getText(R.string.service_started);
@@ -73,53 +108,29 @@ public class BubbleService extends Service {
                 .setAutoCancel(true)
                 .setWhen(System.currentTimeMillis())
                 .setTicker(getText(R.string.n_ticker))
-                .setContentTitle("hi i am the notification title")
+                .setContentTitle(getText(R.string.n_title))
                 .setContentText(text)
                 .setSmallIcon(R.drawable.ic_stat_action_trending_up)
                         // .setLargeIcon(maybe get one of these)
                 .build();
         // Send the notification.
-        // We use a layout id because it is a unique number.  We use it later to cancel.
+        // We use a layout id because it is a unique number.
+        // We use it later to cancel.
         nm.notify(R.string.service_started, notification);
     }
 
     @Override
     public IBinder onBind(Intent intent) {
-        return mMessenger.getBinder();
+        return msgReceiver.getBinder();
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
-        // Cancel the persistent notification.
-        if (timer != null) {
-            timer.cancel();
-        }
+        tasker.stop();
         counter = 0;
         nm.cancel(R.string.service_started);
         Log.i(LOGTAG, "Service Stopped.");
-        isRunning = false;
-    }
-
-    private void sendMessageToUI(int intvaluetosend) {
-        Iterator<Messenger> messengerIterator = mClients.iterator();
-        while (messengerIterator.hasNext()) {
-            Messenger messenger = messengerIterator.next();
-            try {
-                // Send data as an Integer
-                messenger.send(Message.obtain(null, MSG_SET_INT_VALUE, intvaluetosend, 0));
-
-                // Send data as a String
-                Bundle bundle = new Bundle();
-                bundle.putString("str1", "ab" + intvaluetosend + "cd");
-                Message msg = Message.obtain(null, MSG_SET_STRING_VALUE);
-                msg.setData(bundle);
-                messenger.send(msg);
-            } catch (RemoteException e) {
-                // The client is dead. Remove it from the list.
-                mClients.remove(messenger);
-            }
-        }
     }
 
     private class MyTask extends TimerTask {
@@ -127,30 +138,53 @@ public class BubbleService extends Service {
         public void run() {
             Log.i(LOGTAG, "Timer doing work; counter = " + counter);
             try {
+                // Simulates a slow task.
                 Thread.sleep(2000);
                 counter += incrementBy;
-                sendMessageToUI(counter);
+                updateObservers(counter);
             } catch (Throwable t) {
                 Log.e(LOGTAG, "Timer Tick Failed.", t);
             }
         }
     }
 
+    private void updateObservers(int valueToSend) {
+        List<Messenger> dead = new ArrayList<>();
+        for (Messenger observer: msgSenders) {
+            try {
+                // Send data as an Integer
+                observer.send(Message.obtain(null, Msg.Set.INT_VALUE, valueToSend, 0));
+
+                // Send data as a String
+                Bundle bundle = new Bundle();
+                bundle.putString("str1", "ab" + valueToSend + "cd");
+                Message msg = Message.obtain(null, Msg.Set.STR_VALUE);
+                msg.setData(bundle);
+                observer.send(msg);
+            } catch (RemoteException e) {
+                dead.add(observer);
+            }
+        }
+        for (Messenger observer: dead) {
+            msgSenders.remove(observer);
+        }
+    }
+
     // Handler of incoming messages from clients.
-    class IncomingMessHandler extends Handler {
+    private class IncomingMessHandler extends Handler {
         @Override
         public void handleMessage(Message msg) {
             Log.d(LOGTAG, "handleMessage: " + msg.what);
             switch (msg.what) {
-                case MSG_REGISTER_CLIENT:
+                case Msg.Observer.REGISTER:
                     Log.d(LOGTAG, "registering a new client");
-                    mClients.add(msg.replyTo);
+                    msgSenders.add(msg.replyTo);
                     break;
-                case MSG_UNREGISTER_CLIENT:
+                case Msg.Observer.UNREGISTER:
                     Log.d(LOGTAG, "unregistering a client");
-                    mClients.remove(msg.replyTo);
+                    msgSenders.remove(msg.replyTo);
                     break;
-                case MSG_SET_INT_VALUE:
+                case Msg.Set.INT_VALUE:
                     Log.d(LOGTAG, "changing the value of the increment");
                     incrementBy = msg.arg1;
                     break;
