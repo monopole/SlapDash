@@ -34,7 +34,7 @@ public class SlappyScrollingActivity extends AppCompatActivity
     // Used to receive messages from the bound service.
     private final Messenger msgReceiver = new Messenger(new IncomingMessHandler());
 
-    boolean mIsBound = false;
+    boolean isBound = false;
     private Button btnStart, btnStop, btnBind, btnUnbind, btnUpby1, btnUpby10;
     private TextView textStatus, textIntValue, textStrValue;
 
@@ -60,7 +60,7 @@ public class SlappyScrollingActivity extends AppCompatActivity
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        Log.i(LOGTAG, "in onCreate, mIsBound = " + mIsBound);
+        Log.i(LOGTAG, "in onCreate, isBound = " + isBound);
         setContentView(R.layout.activity_slappy_scrolling);
         if (DO_SILLY_THING) {
             prepButtons();
@@ -102,7 +102,7 @@ public class SlappyScrollingActivity extends AppCompatActivity
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
         Log.i(LOGTAG, "in onSaveInstanceState");
-        outState.putBoolean("isBound", mIsBound);
+        outState.putBoolean("isBound", isBound);
         outState.putString("textStatus", textStatus.getText().toString());
         outState.putString("textIntValue", textIntValue.getText().toString());
         outState.putString("textStrValue", textStrValue.getText().toString());
@@ -135,7 +135,7 @@ public class SlappyScrollingActivity extends AppCompatActivity
     private void doBindService() {
         Log.i(LOGTAG, "Doing the service binding in thread " + Thread.currentThread().getId());
         bindService(makeServiceIntent(), this, Context.BIND_AUTO_CREATE);
-        mIsBound = true;
+        isBound = true;
         textStatus.setText("Binding.");
         Log.i(LOGTAG, "Binding completed.");
     }
@@ -166,8 +166,8 @@ public class SlappyScrollingActivity extends AppCompatActivity
      */
     private void doUnbindService() {
         Log.i(LOGTAG, "Doing the service UN-binding");
-        if (!mIsBound) {
-            Log.i(LOGTAG, "Nothing to do for unbind, since mIsBound is false.");
+        if (!isBound) {
+            Log.i(LOGTAG, "Nothing to do for unbind.");
             return;
         }
         if (msgSender == null) {
@@ -183,7 +183,7 @@ public class SlappyScrollingActivity extends AppCompatActivity
             }
         }
         unbindService(this);
-        mIsBound = false;
+        isBound = false;
         textStatus.setText("Unbinding.");
     }
 
@@ -237,8 +237,8 @@ public class SlappyScrollingActivity extends AppCompatActivity
      */
     private void sendMessageToService(int valueToSend) {
         Log.i(LOGTAG, "Trying to send message to service.");
-        if (!mIsBound) {
-            Log.e(LOGTAG, "Cannot send message since not mIsBound.");
+        if (!isBound) {
+            Log.e(LOGTAG, "Cannot send message since not bound.");
             return;
         }
         if (msgSender == null) {

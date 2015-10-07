@@ -19,7 +19,7 @@ import java.util.Timer;
 import java.util.TimerTask;
 
 /**
- * A singleton service.
+ * Use this as a singleton service.
  */
 public class BubbleService extends Service {
 

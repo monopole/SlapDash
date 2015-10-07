@@ -24,6 +24,11 @@
             android:enabled="true"
             android:exported="false" >
         </service>
+        <service
+            android:name=".PresoMtDiscoveryService"
+            android:enabled="true"
+            android:exported="false" >
+        </service>
     </application>
 
 </manifest>
